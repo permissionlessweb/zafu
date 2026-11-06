@@ -15,6 +15,7 @@ import type { EncryptedVault } from './types';
 import { nukeAllWalletData } from './wallet-entries';
 import { finishPendingWipe } from '../../clear-cache-startup';
 import { keyUse } from '../keyring-lock';
+import { createMasterKey } from './crypto-ops';
 import { Box } from '@repo/encryption/box';
 import { issueWorkerKey, openKeySeal } from '../../shared/vault-seal';
 
@@ -285,6 +286,11 @@ describe('password change, second review', () => {
   });
 
   test('an empty-password profile with a hot vault is not handed a new password', async () => {
+    // a profile from before passwords were required: its first zigner import
+    // made the key from ''
+    const blank = await createMasterKey('');
+    await sessionExtStorage.set('passwordKey', blank.keyJson);
+    await localExtStorage.set('passwordKeyPrint', blank.keyPrint.toJson());
     await a
       .getState()
       .keyRing.addZignerUnencrypted(

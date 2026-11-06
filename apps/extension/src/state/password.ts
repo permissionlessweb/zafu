@@ -22,6 +22,14 @@ export const createPasswordSlice =
   (set, _get) => {
     return {
       setPassword: async password => {
+        // a new keyprint over an existing one strands everything sealed under
+        // it: a profile's password is replaced only by keyRing.changePassword
+        if (await local.get('passwordKeyPrint')) {
+          throw new Error('this profile already has a password');
+        }
+        if (!password) {
+          throw new Error('a password is required');
+        }
         const { key, keyPrint } = await Key.create(password);
         const keyJson = await key.toJson();
 

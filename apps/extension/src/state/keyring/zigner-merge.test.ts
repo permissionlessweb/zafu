@@ -21,10 +21,11 @@ describe('a signer scanned for a viewing key already here', () => {
   let useStore: TestStore;
   const kr = () => useStore.getState().keyRing;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     localMock.clear();
     sessionMock.clear();
     useStore = create<AllSlices>()(initializeStore(sessionExtStorage, localExtStorage));
+    await kr().setPassword('a real password');
   });
 
   test('joins that wallet, and every label reads it as the signer it now has', async () => {

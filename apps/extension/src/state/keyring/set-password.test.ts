@@ -3,7 +3,7 @@ import { sessionExtStorage } from '@repo/storage-chrome/session';
 import { beforeEach, describe, expect, test } from 'vitest';
 import { create } from 'zustand';
 import { AllSlices, initializeStore, TestStore } from '..';
-import { decryptVault } from './crypto-ops';
+import { createMasterKey, decryptVault } from './crypto-ops';
 import { PasswordMismatchError } from '.';
 import type { EncryptedVault } from './types';
 
@@ -67,10 +67,21 @@ describe('keyRing.setPassword on an airgap-only profile', () => {
       initializeStore(sessionExtStorage, localExtStorage),
     );
     const kr = () => useStore.getState().keyRing;
-    // a fresh profile's first zigner import mints the empty-password key
+    // a profile from before passwords were required: its first zigner import
+    // made the key from ''
+    const blank = await createMasterKey('');
+    await sessionExtStorage.set('passwordKey', blank.keyJson);
+    await localExtStorage.set('passwordKeyPrint', blank.keyPrint.toJson());
     const id = await kr().addZignerUnencrypted(
       { viewingKey: 'em9yY2hhcmQtZnZr', accountIndex: 0, deviceId: 'dev' },
       'zigner',
+    );
+    localMock.set(
+      'vaults',
+      ((localMock.get('vaults') ?? []) as EncryptedVault[]).map(v => ({
+        ...v,
+        insensitive: { ...v.insensitive, airgapOnly: true },
+      })),
     );
     const vault = () =>
       ((localMock.get('vaults') ?? []) as EncryptedVault[]).find(v => v.id === id)!;
