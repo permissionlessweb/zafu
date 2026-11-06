@@ -34,24 +34,28 @@ export const SettingsChangePassword = () => {
 
   const mismatch =
     form.again.length >= form.next.length && !!form.again && form.again !== form.next;
-  const ready = !!form.current && !!form.next && form.again === form.next;
   const note = outcome ? NOTE[outcome] : mismatch ? NOTE.mismatch : undefined;
 
-  const submit = (e: FormEvent) => {
+  const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (outcome === 'done') {
       back();
       return;
     }
-    if (!ready || busy) {
+    // read at submit, not from react state: autofill can fill a field without
+    // the change event that state waits on
+    const data = new FormData(e.currentTarget);
+    const [current, next, again] = FIELDS.map(([name]) => String(data.get(name) ?? ''));
+    setForm({ current: current!, next: next!, again: again! });
+    if (!current || !next || next !== again || busy) {
       return;
     }
-    if (form.next === form.current) {
+    if (next === current) {
       setOutcome('same');
       return;
     }
     setBusy(true);
-    void changePassword(form.current, form.next)
+    void changePassword(current, next)
       .then(ok => setOutcome(ok ? 'done' : 'wrong'))
       .catch(() => setOutcome('broke'))
       .finally(() => setBusy(false));
@@ -72,6 +76,7 @@ export const SettingsChangePassword = () => {
             </label>
             <Input
               id={`pw-${name}`}
+              name={name}
               type='password'
               autoFocus={i === 0}
               autoComplete={autoComplete}
@@ -97,12 +102,7 @@ export const SettingsChangePassword = () => {
         </span>
       </div>
       <div className='border-t border-border-soft px-4 pb-4 pt-3'>
-        <Button
-          type='submit'
-          loading={busy}
-          disabled={!ready && outcome !== 'done'}
-          className='w-full'
-        >
+        <Button type='submit' loading={busy} className='w-full'>
           {outcome === 'done' ? 'done' : 'change password'}
         </Button>
       </div>

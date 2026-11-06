@@ -6,7 +6,7 @@ import { useStore } from '../../../state';
 import { zignerConnectSelector } from '../../../state/zigner';
 import { keyRingSelector, type ZignerZafuImport } from '../../../state/keyring';
 import { usePageNav } from '../../../utils/navigate';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { QrScanner } from '../../../shared/components/qr-scanner';
 import { AnimatedQrScanner } from '../../../shared/components/animated-qr-scanner';
 import { PagePath } from '../paths';
@@ -38,38 +38,40 @@ const AccessNote = ({ kind }: { kind: 'airgap' | 'watch-only' }) => (
  * password-or-skip footer shown after any successful scan. identical across
  * every detected network, so it lives here once.
  */
+/** a first wallet sets the profile's password; a later one is sealed under it */
 const PasswordChoice = ({
+  hasPassword,
   importing,
   onSetPassword,
-  onSkip,
+  onAdd,
   onScanAgain,
 }: {
+  hasPassword: boolean;
   importing: boolean;
   onSetPassword: () => void;
-  onSkip: () => void;
+  onAdd: () => void;
   onScanAgain: () => void;
 }) => (
   <div className='flex flex-col gap-2'>
-    <Button
-      variant='primary'
-      className='h-14 w-full text-body'
-      onClick={onSetPassword}
-      disabled={importing}
-    >
-      set a password
-    </Button>
-
-    <Button
-      variant='secondary'
-      className='mt-2 h-14 w-full text-body'
-      onClick={onSkip}
-      disabled={importing}
-    >
-      {importing ? 'importing...' : 'continue without a password'}
-    </Button>
-    <p className='text-center text-label text-fg-muted lowercase'>
-      anyone using this computer can open zafu and see your balances
-    </p>
+    {hasPassword ? (
+      <Button
+        variant='primary'
+        className='h-14 w-full text-body'
+        onClick={onAdd}
+        disabled={importing}
+      >
+        {importing ? 'importing...' : 'add this wallet'}
+      </Button>
+    ) : (
+      <Button
+        variant='primary'
+        className='h-14 w-full text-body'
+        onClick={onSetPassword}
+        disabled={importing}
+      >
+        set a password
+      </Button>
+    )}
 
     <Button variant='quiet' className='mt-2 w-full' onClick={onScanAgain} disabled={importing}>
       scan again
@@ -154,6 +156,12 @@ export const ImportZigner = () => {
   } = useStore(zignerConnectSelector);
   const { addZignerUnencrypted } = useStore(keyRingSelector);
   const [importing, setImporting] = useState(false);
+  // a profile without a password sets one first (ZIGNER_PASSWORD); the
+  // signer is then sealed under it, never under ''
+  const [hasPassword, setHasPassword] = useState(false);
+  useEffect(() => {
+    void localExtStorage.get('passwordKeyPrint').then(print => setHasPassword(!!print));
+  }, []);
   // whether the scanner has upgraded to animated (multi-frame) mode
   const [multipart, setMultipart] = useState(false);
 
@@ -194,10 +202,14 @@ export const ImportZigner = () => {
   );
   const handleManualInput = (value: string) => value.trim() && processQrData(value);
 
-  // skip password - use default encryption
-  const handleSkip = async () => {
+  // add to a profile that already has a password, sealed under it
+  const handleAdd = async () => {
     if (!walletImport && !zcashWalletImport && !parsedCosmosExport) {
       setError("please scan your signer's code first");
+      return;
+    }
+    if (!(await localExtStorage.get('passwordKeyPrint'))) {
+      navigate(PagePath.ZIGNER_PASSWORD);
       return;
     }
     try {
@@ -425,7 +437,7 @@ export const ImportZigner = () => {
               variant='primary'
               className='flex-1'
               disabled={!walletImport && !zcashWalletImport && !parsedCosmosExport}
-              onClick={() => void handleSkip()}
+              onClick={() => void handleAdd()}
             >
               import
             </Button>
@@ -455,7 +467,8 @@ export const ImportZigner = () => {
           <PasswordChoice
             importing={importing}
             onSetPassword={handleSetPassword}
-            onSkip={() => void handleSkip()}
+            hasPassword={hasPassword}
+            onAdd={() => void handleAdd()}
             onScanAgain={resetState}
           />
         </div>

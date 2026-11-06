@@ -11,7 +11,13 @@ import { Input } from '@repo/ui/components/ui/input';
 import { usePageNav } from '../../../../utils/navigate';
 import { PagePath } from '../../paths';
 import { PENDING_ZCASH_BIRTHDAY_KEY } from '../constants';
-import { BIRTHDAY_PATH, originOf, passwordStrength, penumbraOnlyImport } from '../flow';
+import {
+  BIRTHDAY_PATH,
+  keepsPassword,
+  originOf,
+  passwordStrength,
+  penumbraOnlyImport,
+} from '../flow';
 import { useOnboarding } from '..';
 import { useFinalizeOnboarding } from './hooks';
 import { useStore } from '../../../../state';
@@ -29,8 +35,8 @@ export const SetPassword = () => {
   const navigate = usePageNav();
   const origin = originOf(useLocation().pathname) ?? SEED_PHRASE_ORIGIN.IMPORTED;
   const onboarding = useOnboarding();
-  // only the create path keeps a password to come back to
-  const kept = origin === SEED_PHRASE_ORIGIN.NEWLY_GENERATED ? onboarding.password : '';
+  // only the create and ledger paths keep a password to come back to
+  const kept = keepsPassword(origin) ? onboarding.password : '';
   const [password, setPassword] = useState(kept);
   const [again, setAgain] = useState(kept);
   const { finalize, error, loading } = useFinalizeOnboarding();
@@ -63,9 +69,14 @@ export const SetPassword = () => {
     if (!match || loading) {
       return;
     }
-    if (origin === SEED_PHRASE_ORIGIN.NEWLY_GENERATED) {
+    if (keepsPassword(origin)) {
       onboarding.setPassword(password);
-      navigate(PagePath.GENERATE_SEED_PHRASE);
+      // the ledger path seals it once the device is read (connect-ledger)
+      navigate(
+        origin === SEED_PHRASE_ORIGIN.LEDGER
+          ? PagePath.CONNECT_LEDGER
+          : PagePath.GENERATE_SEED_PHRASE,
+      );
       return;
     }
     void finalize(origin, password);

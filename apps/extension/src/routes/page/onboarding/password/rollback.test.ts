@@ -9,6 +9,8 @@ import {
   writeEncryptedDirect,
 } from '../../../../state/encrypted-storage';
 import { restoreSnapshot } from './hooks';
+import { createMasterKey, recreateMasterKey } from '../../../../state/keyring/crypto-ops';
+import type { EncryptedVault } from '../../../../state/keyring/types';
 
 const localMock = (chrome.storage.local as unknown as { mock: Map<string, unknown> }).mock;
 const sessionMock = (chrome.storage.session as unknown as { mock: Map<string, unknown> }).mock;
@@ -25,9 +27,21 @@ describe('onboarding rollback', () => {
   test('a first password on an airgap-only profile is undone, other writes kept', async () => {
     const store = create<AllSlices>()(initializeStore(sessionExtStorage, localExtStorage));
     const kr = () => store.getState().keyRing;
+    // a profile from before passwords were required: its first zigner import
+    // made the key from ''
+    const blank = await createMasterKey('');
+    await sessionExtStorage.set('passwordKey', blank.keyJson);
+    await localExtStorage.set('passwordKeyPrint', blank.keyPrint.toJson());
     const id = await kr().addZignerUnencrypted(
       { viewingKey: 'em9yY2hhcmQtZnZr', accountIndex: 0, deviceId: 'dev' },
       'zigner',
+    );
+    localMock.set(
+      'vaults',
+      ((localMock.get('vaults') ?? []) as EncryptedVault[]).map(v => ({
+        ...v,
+        insensitive: { ...v.insensitive, airgapOnly: true },
+      })),
     );
     await writeEncryptedDirect(localExtStorage, sessionExtStorage, 'contacts' as LK, [{ id: 'a' }]);
     const snapshot = await chrome.storage.local.get(null);
@@ -48,7 +62,11 @@ describe('onboarding rollback', () => {
     const fresh = create<AllSlices>()(initializeStore(sessionExtStorage, localExtStorage));
     sessionMock.clear();
     expect(await fresh.getState().keyRing.unlock('the first real password')).toBe(false);
-    expect(await fresh.getState().keyRing.unlock('')).toBe(true);
+    // back to a profile that still has to set its first password
+    expect(await fresh.getState().keyRing.needsPassword()).toBe(true);
+    // and its data still opens with the key it had
+    const blankKey = await recreateMasterKey('', (await localExtStorage.get('passwordKeyPrint'))!);
+    await sessionExtStorage.set('passwordKey', blankKey!.keyJson);
     expect(((await localExtStorage.get('vaults')) ?? []).map(v => v.id)).toEqual([id]);
     expect(await readEncrypted(localExtStorage, sessionExtStorage, 'contacts' as LK)).toEqual([
       { id: 'a' },

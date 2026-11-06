@@ -28,12 +28,15 @@ import { Input } from '@repo/ui/components/ui/input';
 import { StatusSlot } from '@repo/ui/components/ui/status-slot';
 import { localExtStorage } from '@repo/storage-chrome/local';
 import { useStore } from '../../../state';
-import { keyRingSelector, type LedgerImport } from '../../../state/keyring';
+import { keyRingSelector, NoPasswordError, type LedgerImport } from '../../../state/keyring';
 import { usePageNav } from '../../../utils/navigate';
 import { isPopup } from '../../../utils/popup-detection';
 import { PagePath } from '../paths';
 import { setOnboardingValuesInStorage } from './persist-parameters';
 import { SEED_PHRASE_ORIGIN } from './password/types';
+import { ROLLBACK_KEYS, restoreSnapshot } from './password/hooks';
+import { useOnboarding } from '.';
+import { Navigate } from 'react-router-dom';
 import {
   connectLedgerBtc,
   getLedgerZcashTransparentAddress,
@@ -74,9 +77,36 @@ interface Connected {
   readonly transparentAddress: string;
 }
 
+/**
+ * addLedgerUnencrypted, but a profile's first wallet first sets the password
+ * chosen on LEDGER_PASSWORD, so the ledger is sealed under it and never under
+ * ''. A failed add takes the new password back with it (restoreSnapshot), so
+ * the next try starts from a profile with none.
+ */
+const useAddLedger = () => {
+  const { addLedgerUnencrypted, setPassword } = useStore(keyRingSelector);
+  const { password } = useOnboarding();
+  return async (data: LedgerImport, name: string) => {
+    if (await localExtStorage.get('passwordKeyPrint')) {
+      return addLedgerUnencrypted(data, name);
+    }
+    if (!password) {
+      throw new NoPasswordError();
+    }
+    const snapshot = await chrome.storage.local.get(ROLLBACK_KEYS);
+    try {
+      await setPassword(password);
+      return await addLedgerUnencrypted(data, name);
+    } catch (cause) {
+      await restoreSnapshot(snapshot, undefined);
+      throw cause;
+    }
+  };
+};
+
 const ConnectLedgerTransparent = () => {
   const navigate = usePageNav();
-  const { addLedgerUnencrypted } = useStore(keyRingSelector);
+  const addLedgerUnencrypted = useAddLedger();
 
   const [phase, setPhase] = useState<Phase>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -292,7 +322,7 @@ const firstAddress = (ufvk: string) => deriveZcashAddressFromUfvk(ufvk, '00'.rep
 
 const ConnectLedgerShielded = ({ onTransparent }: { onTransparent: () => void }) => {
   const navigate = usePageNav();
-  const { addLedgerUnencrypted } = useStore(keyRingSelector);
+  const addLedgerUnencrypted = useAddLedger();
   const [phase, setPhase] = useState<'idle' | 'working' | 'review' | 'saving'>('idle');
   const [step, setStep] = useState<LedgerExportStep['step']>('checking_app');
   const [guidance, setGuidance] = useState<LedgerGuidance | null>(null);
@@ -498,6 +528,15 @@ const ConnectLedgerShielded = ({ onTransparent }: { onTransparent: () => void })
 /** shielded with the zcash app in beta, the bitcoin app one tap away; transparent otherwise */
 export const ConnectLedger = () => {
   const [transparent, setTransparent] = useState(!HARDWARE_WALLET_ENABLED);
+  const { password } = useOnboarding();
+  // a profile without a password sets one before its first ledger is read
+  const [hasPassword, setHasPassword] = useState<boolean>();
+  useEffect(() => {
+    void localExtStorage.get('passwordKeyPrint').then(print => setHasPassword(!!print));
+  }, []);
+  if (hasPassword === false && !password) {
+    return <Navigate to={PagePath.LEDGER_PASSWORD} replace />;
+  }
   return transparent ? (
     <ConnectLedgerTransparent />
   ) : (

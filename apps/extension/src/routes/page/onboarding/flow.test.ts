@@ -18,6 +18,7 @@ describe('onboarding flow', () => {
       PagePath.ZIGNER_PASSWORD,
       PagePath.VIEWING_KEY_PASSWORD,
       PagePath.CONNECT_LEDGER,
+      PagePath.LEDGER_PASSWORD,
     ]) {
       let at: PagePath | undefined = start;
       const seen: PagePath[] = [];
